@@ -2,6 +2,9 @@ from __future__ import print_function, unicode_literals
 
 import json
 import re
+import shlex
+import itertools
+
 
 from loguru import logger
 
@@ -162,6 +165,7 @@ def parse_vast_url(url_str: str) -> tuple[int, str]:
     return (instance_id, path)
 
 
+
 def parse_env(envs: str | None) -> dict[str, str]:
     """Parse the environment variables provided to the docker container.
 
@@ -172,35 +176,32 @@ def parse_env(envs: str | None) -> dict[str, str]:
     -------
         dict[str, str]: The parsed environment variables.
     """
+
     result: dict[str, str] = {}
     if envs is None:
         return result
-    env = envs.split(' ')
-    prev = None
-    for e in env:
-        if prev is None:
-            if (e == "-e") or (e == "-p"):
-                prev = e
-            else:
-                return result
-        else:
-            if prev == "-p":  # type: ignore
-                if set(e).issubset(set("0123456789:")):
-                    result["-p " + e] = "1"
-                else:
-                    return result
-            elif prev == "-e":
-                e = e.strip(" '\"")
-                if set(e).issubset(
-                    set(
-                        "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_="
-                    )
-                ):
-                    kv = e.split('=')
-                    result[kv[0]] = kv[1]
-                else:
-                    return result
-            prev = None
+
+    # Handle wrapping quotes because the docs suck
+    if (envs.strip().startswith("'") and envs.strip().endswith("'")) or \
+        (envs.strip().startswith('"') and envs.strip().endswith('"')):
+        envs = shlex.split(envs)
+
+        assert len(envs) == 1, "Quoted envs argument did not parse into a single item after doing initial quote unwrap"
+        envs = envs[0]
+
+    split = shlex.split(envs)
+
+    for first, second in itertools.pairwise(split):
+        if first == '-e':
+
+            name, value = second.split('=', 1)
+            result[name] = value
+
+        if first == '-p':
+            if set(second).issubset(set("0123456789:")):
+                result["-p " + second] = "1"
+
+
     return result
 
 
